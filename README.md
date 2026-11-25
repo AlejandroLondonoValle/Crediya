@@ -1,47 +1,72 @@
-# Proyecto Base Implementando Clean Architecture
+# CrediYa · Microservicio de Autenticación
 
-## Antes de Iniciar
+Microservicio encargado del registro y la gestión de usuarios de la plataforma **CrediYa**, construido con **Clean Architecture** a partir del [Scaffold de Bancolombia](https://bancolombia.github.io/scaffold-clean-architecture/).
 
-Empezaremos por explicar los diferentes componentes del proyectos y partiremos de los componentes externos, continuando con los componentes core de negocio (dominio) y por último el inicio y configuración de la aplicación.
+## Historias de usuario implementadas
+| HU | Descripción | Endpoint |
+|----|-------------|----------|
+| HU-01 | Registrar usuarios en el sistema | `POST /api/v1/usuarios` |
 
-Lee el artículo [Clean Architecture — Aislando los detalles](https://medium.com/bancolombia-tech/clean-architecture-aislando-los-detalles-4f9530f35d7a)
+## Arquitectura
+```
+applications/app-service          → Arranque de la app y configuración de beans
+domain/model                      → Entidades (User, Role), puertos (gateways) y excepciones de negocio
+domain/usecase                    → Reglas de negocio (RegisterUserUseCase)
+infrastructure/driven-adapters
+  ├── jpa-repository              → Persistencia con JPA + MySQL, migraciones con Flyway
+  └── password-encoder            → Cifrado de contraseñas con BCrypt
+infrastructure/entry-points
+  └── api-rest                    → API REST (Spring MVC), Swagger y manejo global de errores
+```
+El dominio no depende de ningún framework; la infraestructura implementa los puertos que este define. Las reglas de dependencia se validan en cada build con `validateStructure` y ArchUnit.
 
-# Arquitectura
+## Stack
+Java 25 · Spring Boot 4.2 · Gradle 9 · MySQL 8.4 · Flyway · Lombok · springdoc-openapi · JUnit 5 · Mockito · Pitest
 
-![Clean Architecture](https://miro.medium.com/max/1400/1*ZdlHz8B0-qu9Y-QO3AXR_w.png)
+## Requisitos
+- Java 25
+- Docker
 
-## Domain
+## Cómo ejecutarlo
+1. Levantar MySQL:
+   ```bash
+   docker run -d --name crediya-mysql -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=crediya_auth -e MYSQL_USER=crediya -e MYSQL_PASSWORD=crediya -p 3307:3306 -v crediya-mysql-data:/var/lib/mysql mysql:8.4
+   ```
+2. Ejecutar la aplicación (Flyway crea las tablas y precarga los roles):
+   ```bash
+   ./gradlew bootRun
+   ```
+3. Abrir Swagger: http://localhost:8080/v3/swagger-ui.html
 
-Es el módulo más interno de la arquitectura, pertenece a la capa del dominio y encapsula la lógica y reglas del negocio mediante modelos y entidades del dominio.
+### Variables de entorno
+| Variable | Valor por defecto |
+|----------|-------------------|
+| `DB_URL` | `jdbc:mysql://localhost:3307/crediya_auth` |
+| `DB_USERNAME` | `crediya` |
+| `DB_PASSWORD` | `crediya` |
 
-## Usecases
+## Ejemplo de uso
+```bash
+curl -X POST http://localhost:8080/api/v1/usuarios \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Ana","lastName":"Gómez","email":"ana@mail.com","identityDocument":"1020304050","baseSalary":2500000,"password":"Secreta123*"}'
+```
+Si no se envía `roleId`, el usuario queda con el rol `CLIENT`.
 
-Este módulo gradle perteneciente a la capa del dominio, implementa los casos de uso del sistema, define lógica de aplicación y reacciona a las invocaciones desde el módulo de entry points, orquestando los flujos hacia el módulo de entities.
+| Código | Caso |
+|--------|------|
+| 201 | Usuario registrado |
+| 400 | Campo obligatorio ausente, formato inválido o salario fuera de rango (0 – 15.000.000) |
+| 409 | Correo o documento ya registrado |
 
-## Infrastructure
+## Pruebas
+```bash
+./gradlew build                # compila, ejecuta tests, Pitest y validación de arquitectura
+./gradlew jacocoMergedReport   # reporte de cobertura unificado
+```
 
-### Helpers
-
-En el apartado de helpers tendremos utilidades generales para los Driven Adapters y Entry Points.
-
-Estas utilidades no están arraigadas a objetos concretos, se realiza el uso de generics para modelar comportamientos
-genéricos de los diferentes objetos de persistencia que puedan existir, este tipo de implementaciones se realizan
-basadas en el patrón de diseño [Unit of Work y Repository](https://medium.com/@krzychukosobudzki/repository-design-pattern-bc490b256006)
-
-Estas clases no puede existir solas y debe heredarse su compartimiento en los **Driven Adapters**
-
-### Driven Adapters
-
-Los driven adapter representan implementaciones externas a nuestro sistema, como lo son conexiones a servicios rest,
-soap, bases de datos, lectura de archivos planos, y en concreto cualquier origen y fuente de datos con la que debamos
-interactuar.
-
-### Entry Points
-
-Los entry points representan los puntos de entrada de la aplicación o el inicio de los flujos de negocio.
-
-## Application
-
-Este módulo es el más externo de la arquitectura, es el encargado de ensamblar los distintos módulos, resolver las dependencias y crear los beans de los casos de use (UseCases) de forma automática, inyectando en éstos instancias concretas de las dependencias declaradas. Además inicia la aplicación (es el único módulo del proyecto donde encontraremos la función “public static void main(String[] args)”.
-
-**Los beans de los casos de uso se disponibilizan automaticamente gracias a un '@ComponentScan' ubicado en esta capa.**
+## Flujo de trabajo (GitFlow)
+- `main` → versiones liberadas (con tag)
+- `develop` → integración
+- `feature/HU-XX-descripcion` → una rama por historia de usuario
+- `release/X.Y.Z` → preparación de cada versión
